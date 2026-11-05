@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Nodes{% endblock %}
+{% block content %}
+<section class="heading">
+  <h1>Nodes</h1>
+  <div class="counters">
+    <span class="counter {{ 'counter-nok' if summary.nodes_ready < summary.nodes_total else 'counter-ok' }}"><b>{{ summary.nodes_ready }}/{{ summary.nodes_total }}</b> ready</span>
+    {% for family, count in summary.families.items() %}<span class="counter"><b>{{ count }}</b> {{ family }}</span>{% endfor %}
+  </div>
+</section>
+
+<div class="table-wrap">
+<table class="list">
+  <thead>
+    <tr><th>Status</th><th>Node</th><th>Instance type</th><th>Family</th><th>Capacity</th><th>Node group</th><th>Zone</th><th class="num">CPU</th><th class="num">Memory</th><th class="num">Pods</th><th>Kubelet</th><th class="num">Uptime</th><th>Details</th></tr>
+  </thead>
+  <tbody>
+  {% for h in items %}{% set n = h.node %}
+    <tr class="{{ 'row-nok' if not h.ok }}">
+      <td><span class="pill pill-{{ h.status|lower }}">{{ 'Ready' if h.ok else h.reasons[0] }}</span></td>
+      <td class="mono">{{ n.name }}</td>
+      <td>{{ h.instance_type }}</td>
+      <td><span class="tag">{{ h.family }}</span></td>
+      <td><span class="tag {{ 'tag-spot' if h.capacity_type == 'SPOT' }}">{{ h.capacity_type }}</span></td>
+      <td>{{ h.nodegroup }}</td>
+      <td class="muted">{{ h.zone }}</td>
+      <td class="num">{{ n.cpu|cores }}</td>
+      <td class="num">{{ n.memory|gib }}</td>
+      <td class="num">{{ h.pod_count }}</td>
+      <td class="muted mono">{{ n.kubelet_version }}</td>
+      <td class="num">{{ h.uptime_seconds|duration }}</td>
+      <td>
+        {% for r in h.reasons[1:] %}<span class="reason">{{ r }}</span>{% endfor %}
+        {% for x in h.notes %}<span class="note">{{ x }}</span>{% endfor %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted small">CPU and memory are allocatable capacity. Pods counts only the watched namespaces.</p>
+{% endblock %}

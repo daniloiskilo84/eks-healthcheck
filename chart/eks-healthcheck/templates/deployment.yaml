@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "healthcheck.fullname" . }}
+  labels:
+    {{- include "healthcheck.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "healthcheck.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "healthcheck.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "healthcheck.serviceAccountName" . }}
+      automountServiceAccountToken: {{ not .Values.demoMode }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: healthcheck
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: CLUSTER_NAME
+              value: {{ .Values.clusterName | quote }}
+            - name: DEMO_MODE
+              value: {{ .Values.demoMode | quote }}
+            - name: NAMESPACES
+              value: {{ join "," .Values.namespaces | quote }}
+            - name: EXCLUDE_NAMESPACES
+              value: {{ join "," .Values.excludeNamespaces | quote }}
+            - name: ROLLOUT_ENABLED
+              value: {{ .Values.rollout.enabled | quote }}
+            - name: REFRESH_SECONDS
+              value: {{ .Values.refresh.pageSeconds | quote }}
+            - name: TV_REFRESH_SECONDS
+              value: {{ .Values.refresh.tvSeconds | quote }}
+            - name: CACHE_TTL_SECONDS
+              value: {{ .Values.cacheTtlSeconds | quote }}
+            - name: PENDING_GRACE_SECONDS
+              value: {{ .Values.pendingGraceSeconds | quote }}
+            - name: LOG_TAIL_LINES
+              value: {{ .Values.logTailLines | quote }}
+            {{- if .Values.auth.enabled }}
+            - name: AUTH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthcheck.authSecret" . }}
+                  key: username
+            - name: AUTH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "healthcheck.authSecret" . }}
+                  key: password
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

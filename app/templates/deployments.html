@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Deployments{% endblock %}
+{% block content %}
+<section class="heading">
+  <h1>Deployments</h1>
+  <div class="counters">
+    <span class="counter counter-nok"><b>{{ nok_count }}</b> NOK</span>
+    <span class="counter counter-ok"><b>{{ ok_count }}</b> OK</span>
+  </div>
+</section>
+
+<form class="filters" method="get" action="/deployments">
+  <label>Namespace
+    <select name="ns" onchange="this.form.submit()">
+      <option value="">all namespaces</option>
+      {% for ns in namespaces %}<option value="{{ ns }}" {{ 'selected' if ns == selected_ns }}>{{ ns }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="grow">Filter
+    <input type="search" id="filter" placeholder="name, namespace or reason…" autocomplete="off" data-filter-table="deployments">
+  </label>
+  <noscript><button type="submit">Apply</button></noscript>
+</form>
+
+{% if not items %}
+<p class="empty">No deployments in the watched namespaces.</p>
+{% else %}
+<div class="table-wrap">
+<table id="deployments" class="list">
+  <thead>
+    <tr><th>Status</th><th>Namespace</th><th>Deployment</th><th class="num">Ready</th><th class="num">Up-to-date</th><th class="num">Restarts</th><th class="num">Age</th><th>Details</th></tr>
+  </thead>
+  <tbody>
+  {% for h in items %}{% set d = h.deployment %}
+    <tr class="{{ 'row-nok' if not h.ok }}">
+      <td><span class="pill pill-{{ h.status|lower }}">{{ h.status }}</span></td>
+      <td class="muted">{{ d.namespace }}</td>
+      <td><a class="strong" href="/deployments/{{ d.namespace }}/{{ d.name }}">{{ d.name }}</a></td>
+      <td class="num">{{ d.ready }}/{{ d.replicas }}</td>
+      <td class="num">{{ d.updated }}</td>
+      <td class="num {{ 'warn' if h.restarts > 5 }}">{{ h.restarts }}</td>
+      <td class="num muted">{{ d.created|ago }}</td>
+      <td>
+        {% for r in h.reasons %}<span class="reason">{{ r }}</span>{% endfor %}
+        {% for n in h.notes %}<span class="note">{{ n }}</span>{% endfor %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

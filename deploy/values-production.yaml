@@ -1,0 +1,30 @@
+# Production overrides used by .github/workflows/deploy.yml.
+# clusterName and image.tag are set by the pipeline.
+
+replicaCount: 1
+
+# kube-system is noisy for most teams; remove this line to watch it too.
+excludeNamespaces: []
+
+rollout:
+  enabled: true
+
+# Expose it inside the VPC through the AWS Load Balancer Controller.
+# Keep it internal: the rollout button is a write action on the cluster.
+ingress:
+  enabled: false
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+  hosts:
+    - host: healthcheck.internal.example.com
+      paths: ["/"]
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 256Mi

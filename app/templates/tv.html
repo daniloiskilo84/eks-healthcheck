@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}TV{% endblock %}
+{% block body_class %}tv{% endblock %}
+{% block header %}
+<header class="tv-top">
+  <div class="tv-cluster"><span class="hex" aria-hidden="true"></span>{{ cluster_name }}{% if demo %} <span class="tag tag-demo">demo</span>{% endif %}</div>
+  <div class="tv-clock" id="clock"></div>
+</header>
+{% endblock %}
+{% block content %}
+{% set s = summary %}
+<section class="tv-state {{ 'tv-state-ok' if s.healthy else 'tv-state-nok' }}">
+  {% if s.healthy %}All systems healthy{% else %}{{ s.deployments_nok + s.nok_nodes|length }} need{{ 's' if (s.deployments_nok + s.nok_nodes|length) == 1 }} attention{% endif %}
+</section>
+
+<section class="tv-tiles">
+  <div class="tile {{ 'tile-nok' if s.deployments_nok else 'tile-ok' }}">
+    <span class="tile-label">Deployments</span>
+    <span class="tile-value">{{ s.deployments_ok }}<small>/{{ s.deployments_total }}</small></span>
+    <span class="tile-sub">{{ s.deployments_nok }} NOK</span>
+  </div>
+  <div class="tile {{ 'tile-nok' if s.nodes_ready < s.nodes_total else 'tile-ok' }}">
+    <span class="tile-label">Nodes ready</span>
+    <span class="tile-value">{{ s.nodes_ready }}<small>/{{ s.nodes_total }}</small></span>
+    <span class="tile-sub">{% if s.nodes_ready < s.nodes_total %}{{ s.nodes_total - s.nodes_ready }} not ready · {% endif %}{% for f, c in s.families.items() %}{{ c }}× {{ f }}{{ ' · ' if not loop.last }}{% endfor %}</span>
+  </div>
+  <div class="tile {{ 'tile-warn' if s.problem_pods else 'tile-ok' }}">
+    <span class="tile-label">Pods</span>
+    <span class="tile-value">{{ s.pods_by_phase.get('Running', 0) }}<small> running</small></span>
+    <span class="tile-sub">{{ s.pods_by_phase.get('Pending', 0) }} pending · {{ s.problem_pods }} with problems</span>
+  </div>
+  <div class="tile {{ 'tile-warn' if s.restarts > 50 else '' }}">
+    <span class="tile-label">Container restarts</span>
+    <span class="tile-value">{{ s.restarts }}</span>
+    <span class="tile-sub">since each pod started</span>
+  </div>
+</section>
+
+{% if not s.healthy %}
+<section class="tv-list">
+  <h2>Needs attention</h2>
+  <ul>
+    {% for h in s.nok_deployments %}
+    <li><span class="pill pill-nok">NOK</span><span class="tv-name"><span class="muted">{{ h.deployment.namespace }}/</span>{{ h.deployment.name }}</span><span class="tv-reason">{{ h.reasons|join(' · ') }}</span></li>
+    {% endfor %}
+    {% for n in s.nok_nodes %}
+    <li><span class="pill pill-nok">NODE</span><span class="tv-name">{{ n.node.name }}</span><span class="tv-reason">{{ n.reasons|join(' · ') }} · {{ n.instance_type }} · {{ n.nodegroup }}</span></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}
+{% block footer %}
+<footer class="tv-foot">Updated <time datetime="{{ taken_at.isoformat() }}">{{ taken_at|ago }}</time> ago · refresh every {{ refresh_seconds }}s</footer>
+{% endblock %}

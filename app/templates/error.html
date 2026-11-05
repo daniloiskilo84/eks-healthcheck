@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% if retry %}<meta http-equiv="refresh" content="15">{% endif %}
+  <title>Error · healthcheck</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/deployments"><span class="hex" aria-hidden="true"></span>healthcheck</a>
+    <span class="cluster">{{ cluster_name }}</span>
+  </header>
+  <main>
+    <div class="banner banner-error">
+      {% if retry %}<strong>Could not load the cluster state.</strong>{% endif %}
+      <p>{{ message }}</p>
+      {% if retry %}<p class="small">Retrying every 15 seconds.</p>{% else %}<p><a href="/deployments">Back to deployments</a></p>{% endif %}
+    </div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,91 @@
+# Name shown on every page and on the TV.
+clusterName: my-eks-cluster
+
+# true = fake cluster, no Kubernetes API calls (demos, screenshots).
+demoMode: false
+
+# Empty = every namespace. Excluded ones are hidden everywhere, including logs and rollout.
+namespaces: []
+excludeNamespaces: []
+
+rollout:
+  # false removes the button, the endpoint and the RBAC "patch" permission.
+  enabled: true
+
+refresh:
+  pageSeconds: 30
+  tvSeconds: 15
+
+# One LIST of deployments/pods/nodes per TTL, however many browsers are open.
+cacheTtlSeconds: 10
+# A pod Pending for longer than this counts as a problem.
+pendingGraceSeconds: 300
+logTailLines: 300
+
+# HTTP Basic auth for the UI and API (probes stay open). Prefer an SSO-aware ingress
+# (ALB + Cognito/OIDC, oauth2-proxy) in production; this is the simple fallback.
+auth:
+  enabled: false
+  username: ops
+  password: ""
+  # Existing Secret with keys "username" and "password" (takes precedence).
+  existingSecret: ""
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/daniloiskilo84/eks-healthcheck
+  # Defaults to the chart appVersion; the pipeline sets the commit SHA.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: alb
+  annotations: {}
+    # alb.ingress.kubernetes.io/scheme: internal
+    # alb.ingress.kubernetes.io/target-type: ip
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:...
+  hosts:
+    - host: healthcheck.example.com
+      paths: ["/"]
+  tls: []
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

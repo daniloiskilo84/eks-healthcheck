@@ -1,0 +1,11 @@
+healthcheck is running for cluster "{{ .Values.clusterName }}"{{ if .Values.demoMode }} (DEMO DATA){{ end }}.
+
+{{- if .Values.ingress.enabled }}
+Open: http{{ if .Values.ingress.tls }}s{{ end }}://{{ (first .Values.ingress.hosts).host }}/
+{{- else }}
+Open it locally:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "healthcheck.fullname" . }} 8080:{{ .Values.service.port }}
+  then http://localhost:8080 (TV dashboard: http://localhost:8080/tv)
+{{- end }}
+
+Rollout restart is {{ if .Values.rollout.enabled }}ENABLED{{ else }}disabled{{ end }}; UI auth is {{ if .Values.auth.enabled }}enabled{{ else }}OFF (put it behind an authenticating ingress){{ end }}.

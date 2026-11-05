@@ -1,0 +1,9 @@
+apiVersion: v2
+name: eks-healthcheck
+description: Deployment, pod and node health for one EKS cluster, with rollout restart and a TV dashboard
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords: [kubernetes, eks, monitoring, dashboard]
+maintainers:
+  - name: Danilo Rocha Alves

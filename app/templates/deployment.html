@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ dep.name }}{% endblock %}
+{% block content %}
+<nav class="crumbs"><a href="/deployments">Deployments</a> / <a href="/deployments?ns={{ dep.namespace }}">{{ dep.namespace }}</a> / {{ dep.name }}</nav>
+
+<section class="heading">
+  <h1>{{ dep.name }} <span class="pill pill-{{ item.status|lower }}">{{ item.status }}</span></h1>
+  {% if rollout_enabled %}
+  <button type="button" class="btn btn-primary" data-rollout="{{ dep.namespace }}/{{ dep.name }}"
+          title="Same as kubectl rollout restart: recreates every pod, one at a time">Rollout restart</button>
+  {% endif %}
+</section>
+
+{% if item.reasons or item.notes %}
+<ul class="reasons">
+  {% for r in item.reasons %}<li class="reason">{{ r }}</li>{% endfor %}
+  {% for n in item.notes %}<li class="note">{{ n }}</li>{% endfor %}
+</ul>
+{% endif %}
+
+<dl class="facts">
+  <div><dt>Namespace</dt><dd>{{ dep.namespace }}</dd></div>
+  <div><dt>Replicas</dt><dd>{{ dep.ready }} ready · {{ dep.updated }} up-to-date · {{ dep.available }} available · {{ dep.replicas }} desired</dd></div>
+  <div><dt>Age</dt><dd>{{ dep.created|ago }}</dd></div>
+  <div><dt>Last restart</dt><dd>{{ dep.restarted_at or "no rollout restart yet" }}</dd></div>
+  <div class="wide"><dt>Image{{ 's' if dep.images|length > 1 }}</dt><dd>{% for i in dep.images %}<code>{{ i }}</code>{% endfor %}</dd></div>
+</dl>
+
+<h2>Pods <small class="muted">{{ item.pods|length }}</small></h2>
+{% if not item.pods %}
+<p class="empty">No pods. {% if dep.replicas == 0 %}The deployment is scaled to zero.{% endif %}</p>
+{% else %}
+<div class="table-wrap">
+<table class="list">
+  <thead><tr><th>Pod</th><th>Status</th><th class="num">Ready</th><th class="num">Restarts</th><th>Node</th><th class="num">Age</th><th></th></tr></thead>
+  <tbody>
+  {% for p in item.pods %}
+    {% set bad = p.status_text not in ('Running', 'Succeeded', 'ContainerCreating', 'PodInitializing') %}
+    <tr class="{{ 'row-nok' if bad }}">
+      <td class="mono">{{ p.name }}</td>
+      <td><span class="pill pill-{{ 'nok' if bad else 'ok' }}">{{ p.status_text }}</span></td>
+      <td class="num">{{ p.ready_count }}/{{ p.main_containers|length }}</td>
+      <td class="num {{ 'warn' if p.restarts > 5 }}">{{ p.restarts }}</td>
+      <td class="muted mono">{{ p.node or '—' }}</td>
+      <td class="num muted">{{ p.created|ago }}</td>
+      <td class="actions">
+        <button type="button" class="btn" data-events="{{ p.namespace }}/{{ p.name }}">Events</button>
+        <button type="button" class="btn" data-logs="{{ p.namespace }}/{{ p.name }}" data-containers="{{ p.container_names|join(',') }}" data-restarts="{{ p.restarts }}">Logs</button>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<dialog id="viewer" class="viewer">
+  <header>
+    <h3 id="viewer-title"></h3>
+    <div class="viewer-controls" id="log-controls" hidden>
+      <label>Container <select id="log-container"></select></label>
+      <label>Lines
+        <select id="log-tail"><option>100</option><option selected>300</option><option>1000</option><option>2000</option></select>
+      </label>
+      <label class="check"><input type="checkbox" id="log-previous"> previous container</label>
+      <button type="button" class="btn" id="log-reload">Reload</button>
+    </div>
+    <button type="button" class="btn close" id="viewer-close" aria-label="Close">✕</button>
+  </header>
+  <div id="viewer-body" class="viewer-body"></div>
+</dialog>
+{% endblock %}
