@@ -1,8 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
-#  YOUR SETTINGS: the one file to edit for your cluster.
-#  The pipeline (.github/workflows/deploy.yml) applies it with:
-#    clusterName      ← repository variable EKS_CLUSTER_NAME
-#    image.repository ← ECR_REPOSITORY (or ghcr.io/<owner>/eks-healthcheck)
+#  YOUR APP SETTINGS for the cluster. Where to build/push/deploy is in
+#  deploy/pipeline.env; the pipeline adds, from that file:
+#    clusterName      ← EKS_CLUSTER_NAME
+#    image.repository ← IMAGE_REPOSITORY (your registry, your build)
 #    image.tag        ← the commit SHA
 #  Every option, with its default: chart/eks-healthcheck/values.yaml
 # ─────────────────────────────────────────────────────────────────────────────

@@ -63,8 +63,13 @@ run "defaults_create_everything" {
   }
 
   assert {
-    condition     = strcontains(output.github_setup, "ECR_REPOSITORY") && strcontains(output.github_setup, "--repo acme/eks-healthcheck")
-    error_message = "github_setup prints the variables for the fork"
+    condition     = strcontains(output.pipeline_env, "IMAGE_REPOSITORY=123456789012.dkr.ecr.us-east-1.amazonaws.com/eks-healthcheck")
+    error_message = "pipeline.env points the pipeline at the new ECR repository"
+  }
+
+  assert {
+    condition     = strcontains(output.pipeline_env, "EKS_CLUSTER_NAME=demo") && strcontains(output.pipeline_env, "AWS_DEPLOY_ROLE_ARN=arn:aws:iam::123456789012:role/")
+    error_message = "pipeline.env carries the cluster and the deploy role"
   }
 }
 
@@ -81,8 +86,8 @@ run "ghcr_instead_of_ecr" {
   }
 
   assert {
-    condition     = !strcontains(output.github_setup, "ECR_REPOSITORY")
-    error_message = "ECR_REPOSITORY must not be set when GHCR is used"
+    condition     = strcontains(output.pipeline_env, "IMAGE_REPOSITORY=ghcr.io/acme/eks-healthcheck")
+    error_message = "without ECR the image goes to the fork owner's GHCR"
   }
 
   assert {

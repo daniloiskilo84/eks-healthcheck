@@ -34,7 +34,9 @@ auth:
 replicaCount: 1
 
 image:
-  repository: ghcr.io/daniloiskilo84/eks-healthcheck
+  # REQUIRED: your own build in your own registry (there is no shared image).
+  # e.g. 123456789012.dkr.ecr.us-east-1.amazonaws.com/eks-healthcheck
+  repository: ""
   # Defaults to the chart appVersion; the pipeline sets the commit SHA.
   tag: ""
   pullPolicy: IfNotPresent

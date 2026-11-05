@@ -65,7 +65,7 @@ Design decisions worth calling out:
 ### 1. Demo, no cluster needed
 
 ```bash
-make demo        # or: docker build -t eks-healthcheck:dev . && docker run --rm -p 8080:8080 -e DEMO_MODE=true eks-healthcheck:dev
+make demo        # builds the image locally and runs it with DEMO_MODE=true
 open http://localhost:8080        # TV: http://localhost:8080/tv
 ```
 
@@ -81,25 +81,25 @@ Running the app on your laptop against the current kube context also works: `pip
 
 ### 3. Your EKS cluster
 
-**Fork it, run one `terraform apply`, set four repository variables, push.** From then on every push to your `main` is tested and deployed to your cluster, with the image in your ECR and no AWS keys stored anywhere. Step by step, plus a 5-minute Helm-only path: **[docs/deploy-your-cluster.md](docs/deploy-your-cluster.md)**.
+**There is no shared image: each user builds this repository into their own registry.** Fork it, run one `terraform apply` (it creates your ECR repository, a GitHub OIDC role and the EKS access), paste its output into `deploy/pipeline.env`, push. From then on every push to your `main` is tested, built into your registry and deployed to your cluster, with no AWS keys stored anywhere. Step by step, plus a build-and-Helm path from a laptop: **[docs/deploy-your-cluster.md](docs/deploy-your-cluster.md)**.
 
 ```mermaid
 flowchart LR
     P[push to main] --> T[test<br/>ruff + 76 pytest]
     P --> C[chart<br/>helm lint + render variants]
     T & C --> E[e2e on kind<br/>Trivy scan + real API checks]
-    E --> I[image<br/>amd64 + arm64 → your ECR or GHCR]
+    E --> I[image<br/>amd64 + arm64 → YOUR registry]
     I --> D[eks<br/>OIDC → helm upgrade --atomic → smoke test]
 ```
 
 | You change | Where |
 |---|---|
-| AWS account, cluster, region, which repository may deploy | [`infra/terraform.tfvars`](infra/terraform.tfvars.example): creates the OIDC role, ECR repository and EKS access entry |
-| Which cluster the pipeline deploys to | repository variables `AWS_REGION`, `EKS_CLUSTER_NAME`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY` (printed by `terraform output github_setup`) |
+| AWS account, cluster, region, which repository may deploy | [`infra/terraform.tfvars`](infra/terraform.tfvars.example): creates your ECR repository, the OIDC role and the EKS access entry |
+| **Your registry**, cluster, region, role, namespace | [`deploy/pipeline.env`](deploy/pipeline.env), committed with the code (ECR, GHCR or any registry) |
 | Namespaces, rollout on/off, ALB ingress, login, node placement | [`deploy/values-production.yaml`](deploy/values-production.yaml) |
 | Who approves production deploys | required reviewers on the `production` environment |
 
-`ci.yml` runs on every push and pull request; `deploy.yml` starts only after CI succeeded on `main`. Without `EKS_CLUSTER_NAME` the deploy job is skipped, so a fresh fork stays green. The IAM role trusts only your repository's `main` branch and `production` environment: pull requests can run tests but can never deploy.
+`ci.yml` runs on every push and pull request; `deploy.yml` starts only after CI succeeded on `main`. While `deploy/pipeline.env` is empty it only prints a notice, so a fresh fork stays green; the chart itself refuses to render without `image.repository`. The IAM role trusts only your repository's `main` branch and `production` environment: pull requests can run tests but can never deploy.
 
 ## Configuration
 
@@ -144,7 +144,7 @@ app/
   main.py        # FastAPI routes, API shapes, auth, rollout
   templates/ static/
 chart/eks-healthcheck/   # Helm chart: Deployment, Service, Ingress, RBAC, Secret
-deploy/                  # YOUR settings, applied by the pipeline
+deploy/                  # YOUR registry/cluster (pipeline.env) and app settings
 infra/                   # Terraform: GitHub OIDC role, ECR, EKS access entry
 docs/deploy-your-cluster.md
 scripts/e2e-kind.sh      # end-to-end checks against a real cluster

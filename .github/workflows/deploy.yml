@@ -1,14 +1,8 @@
 name: deploy
 
-# Runs after "ci" succeeds on main: push → tests → kind e2e → image → EKS.
-#
-# Configure your fork with repository VARIABLES (Settings → Secrets and variables →
-# Actions → Variables); `terraform -chdir=infra output github_setup` prints the commands:
-#   AWS_REGION           e.g. us-east-1
-#   EKS_CLUSTER_NAME     the cluster to deploy to (without it the eks job is skipped)
-#   AWS_DEPLOY_ROLE_ARN  IAM role assumed through GitHub OIDC (infra/ creates it)
-#   ECR_REPOSITORY       optional; without it the image goes to ghcr.io/<owner>/eks-healthcheck
-#   HELM_NAMESPACE       optional; default "healthcheck"
+# Runs after "ci" succeeds on main: push → tests → kind e2e → YOUR image → YOUR cluster.
+# Everything it needs is in the code: deploy/pipeline.env (registry, cluster, role)
+# and deploy/values-production.yaml (app settings). No shared image is ever used.
 on:
   workflow_run:
     workflows: [ci]
@@ -18,8 +12,8 @@ on:
 
 permissions:
   contents: read
-  packages: write
-  id-token: write # OIDC: GitHub gets short-lived AWS credentials, no access keys stored
+  packages: write # only used when IMAGE_REPOSITORY is on ghcr.io
+  id-token: write # OIDC: short-lived AWS credentials, no access keys stored
 
 concurrency:
   group: deploy-production
@@ -29,44 +23,96 @@ env:
   SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
-  image:
+  config:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     outputs:
-      repository: ${{ steps.target.outputs.repository }}
+      repository: ${{ steps.cfg.outputs.repository }}
+      registry: ${{ steps.cfg.outputs.registry }}
+      registry_type: ${{ steps.cfg.outputs.registry_type }}
+      ecr_region: ${{ steps.cfg.outputs.ecr_region }}
+      cluster: ${{ steps.cfg.outputs.cluster }}
+      region: ${{ steps.cfg.outputs.region }}
+      role: ${{ steps.cfg.outputs.role }}
+      namespace: ${{ steps.cfg.outputs.namespace }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SHA }}
+      - name: Read deploy/pipeline.env
+        id: cfg
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -a; . deploy/pipeline.env; set +a
+          repo="${IMAGE_REPOSITORY:-}"
+          registry="${repo%%/*}"
+          type=other ecr_region=""
+          if [ -z "$repo" ]; then
+            echo "::notice title=Pipeline not configured::Set IMAGE_REPOSITORY (and the cluster) in deploy/pipeline.env to build your image and deploy it. Guide: docs/deploy-your-cluster.md"
+          elif [[ "$repo" =~ ^[0-9]{12}\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com/ ]]; then
+            type=ecr ecr_region="${BASH_REMATCH[1]}"
+            [ -n "${AWS_DEPLOY_ROLE_ARN:-}" ] || { echo "::error::ECR needs AWS_DEPLOY_ROLE_ARN in deploy/pipeline.env"; exit 1; }
+          elif [[ "$repo" == ghcr.io/* ]]; then
+            type=ghcr
+            ns=$(echo "$repo" | cut -d/ -f2)
+            if [ "$ns" != "${OWNER,,}" ]; then
+              echo "::error::IMAGE_REPOSITORY points to ghcr.io/$ns, but this repository belongs to ${OWNER,,}. Push to your own registry."
+              exit 1
+            fi
+          fi
+          if [ -n "$repo" ] && { [[ "$repo" =~ [A-Z[:space:]] ]] || [[ "${repo##*/}" == *:* ]]; }; then
+            echo "::error::IMAGE_REPOSITORY must be lowercase, without spaces and without a tag: $repo"; exit 1
+          fi
+          if [ -n "${EKS_CLUSTER_NAME:-}" ] && { [ -z "$repo" ] || [ -z "${AWS_DEPLOY_ROLE_ARN:-}" ] || [ -z "${AWS_REGION:-}" ]; }; then
+            echo "::error::Deploying to EKS needs IMAGE_REPOSITORY, AWS_REGION and AWS_DEPLOY_ROLE_ARN in deploy/pipeline.env"; exit 1
+          fi
+          {
+            echo "repository=$repo"
+            echo "registry=$registry"
+            echo "registry_type=$type"
+            echo "ecr_region=$ecr_region"
+            echo "cluster=${EKS_CLUSTER_NAME:-}"
+            echo "region=${AWS_REGION:-}"
+            echo "role=${AWS_DEPLOY_ROLE_ARN:-}"
+            echo "namespace=${HELM_NAMESPACE:-healthcheck}"
+          } >> "$GITHUB_OUTPUT"
+          echo "registry: ${type} ${repo:-<not configured>} · cluster: ${EKS_CLUSTER_NAME:-<none>}" >> "$GITHUB_STEP_SUMMARY"
+
+  image:
+    needs: config
+    if: needs.config.outputs.repository != ''
+    runs-on: ubuntu-latest
+    env:
+      REPOSITORY: ${{ needs.config.outputs.repository }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.SHA }}
 
-      - name: Pick the registry
-        id: target
-        env:
-          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
-          OWNER: ${{ github.repository_owner }}
-        run: |
-          if [ -n "$ECR_REPOSITORY" ]; then
-            echo "repository=$ECR_REPOSITORY" >> "$GITHUB_OUTPUT"
-          else
-            echo "repository=ghcr.io/${OWNER,,}/eks-healthcheck" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: AWS credentials (ECR)
-        if: vars.ECR_REPOSITORY != ''
+        if: needs.config.outputs.registry_type == 'ecr'
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ needs.config.outputs.role }}
+          aws-region: ${{ needs.config.outputs.ecr_region }}
       - name: Log in to ECR
-        if: vars.ECR_REPOSITORY != ''
+        if: needs.config.outputs.registry_type == 'ecr'
         uses: aws-actions/amazon-ecr-login@v2
       - name: Log in to GHCR
-        if: vars.ECR_REPOSITORY == ''
+        if: needs.config.outputs.registry_type == 'ghcr'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to ${{ needs.config.outputs.registry }}
+        if: needs.config.outputs.registry_type == 'other'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ needs.config.outputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
 
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
@@ -77,33 +123,33 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ steps.target.outputs.repository }}:${{ env.SHA }}
-            ${{ steps.target.outputs.repository }}:latest
+            ${{ env.REPOSITORY }}:${{ env.SHA }}
+            ${{ env.REPOSITORY }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ env.SHA }}
+      - run: echo "Pushed \`$REPOSITORY:$SHA\`" >> "$GITHUB_STEP_SUMMARY"
 
   eks:
-    needs: image
-    # Skipped until EKS_CLUSTER_NAME exists, so forks without a cluster stay green.
-    if: vars.EKS_CLUSTER_NAME != ''
+    needs: [config, image]
+    if: needs.config.outputs.cluster != ''
     runs-on: ubuntu-latest
     environment: production
     env:
-      NAMESPACE: ${{ vars.HELM_NAMESPACE || 'healthcheck' }}
-      CLUSTER: ${{ vars.EKS_CLUSTER_NAME }}
-      REGION: ${{ vars.AWS_REGION }}
-      REPOSITORY: ${{ needs.image.outputs.repository }}
+      CLUSTER: ${{ needs.config.outputs.cluster }}
+      REGION: ${{ needs.config.outputs.region }}
+      NAMESPACE: ${{ needs.config.outputs.namespace }}
+      REPOSITORY: ${{ needs.config.outputs.repository }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.SHA }}
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ needs.config.outputs.role }}
+          aws-region: ${{ needs.config.outputs.region }}
       - name: Kubeconfig
         run: aws eks update-kubeconfig --name "$CLUSTER" --region "$REGION"
       - uses: azure/setup-helm@v5
@@ -123,5 +169,4 @@ jobs:
           kubectl -n "$NAMESPACE" port-forward svc/healthcheck-eks-healthcheck 18080:80 &
           for i in $(seq 20); do curl -sf localhost:18080/readyz && break; sleep 3; done
           curl -sf localhost:18080/api/summary | jq '{cluster, healthy, deployments, nodes}'
-          echo "### healthcheck deployed to $CLUSTER" >> "$GITHUB_STEP_SUMMARY"
-          echo "Image \`$REPOSITORY:$SHA\`, namespace \`$NAMESPACE\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deployed \`$REPOSITORY:$SHA\` to \`$CLUSTER\` (namespace \`$NAMESPACE\`)" >> "$GITHUB_STEP_SUMMARY"

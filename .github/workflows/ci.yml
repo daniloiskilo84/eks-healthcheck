@@ -36,15 +36,21 @@ jobs:
         with:
           version: v3.22.1
       - name: Lint chart
-        run: helm lint --strict chart/eks-healthcheck
+        run: helm lint --strict chart/eks-healthcheck --set image.repository=registry.example.com/eks-healthcheck
       - name: Render every variant
         run: |
-          helm template t chart/eks-healthcheck > /dev/null
-          helm template t chart/eks-healthcheck --set demoMode=true > /dev/null
-          helm template t chart/eks-healthcheck | grep -q '"patch"'
-          ! helm template t chart/eks-healthcheck --set rollout.enabled=false | grep -q '"patch"'
-          helm template t chart/eks-healthcheck --set auth.enabled=true --set auth.password=x --set ingress.enabled=true > /dev/null
-          ! helm template t chart/eks-healthcheck --set auth.enabled=true 2>/dev/null
+          # no image of our own is ever assumed: rendering without one must fail
+          ! helm template t chart/eks-healthcheck 2>/dev/null
+          IMG="--set image.repository=registry.example.com/eks-healthcheck"
+          helm template t chart/eks-healthcheck $IMG > /dev/null
+          helm template t chart/eks-healthcheck $IMG -f deploy/values-production.yaml > /dev/null
+          helm template t chart/eks-healthcheck $IMG --set demoMode=true > /dev/null
+          helm template t chart/eks-healthcheck $IMG | grep -q '"patch"'
+          ! helm template t chart/eks-healthcheck $IMG --set rollout.enabled=false | grep -q '"patch"'
+          helm template t chart/eks-healthcheck $IMG --set auth.enabled=true --set auth.password=x --set ingress.enabled=true > /dev/null
+          ! helm template t chart/eks-healthcheck $IMG --set auth.enabled=true 2>/dev/null
+      - name: pipeline.env parses
+        run: bash -n deploy/pipeline.env && (set -a; . deploy/pipeline.env; set +a; echo "HELM_NAMESPACE=$HELM_NAMESPACE")
 
   infra:
     name: infra (terraform)
