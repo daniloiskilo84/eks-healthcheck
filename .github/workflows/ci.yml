@@ -46,6 +46,23 @@ jobs:
           helm template t chart/eks-healthcheck --set auth.enabled=true --set auth.password=x --set ingress.enabled=true > /dev/null
           ! helm template t chart/eks-healthcheck --set auth.enabled=true 2>/dev/null
 
+  infra:
+    name: infra (terraform)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.17.1
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+      - name: Tests with a mocked AWS provider
+        run: terraform test
+
   e2e:
     name: e2e (kind)
     needs: [test, chart]

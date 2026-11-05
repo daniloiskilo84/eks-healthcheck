@@ -1,16 +1,25 @@
-# Production overrides used by .github/workflows/deploy.yml.
-# clusterName and image.tag are set by the pipeline.
+# ─────────────────────────────────────────────────────────────────────────────
+#  YOUR SETTINGS: the one file to edit for your cluster.
+#  The pipeline (.github/workflows/deploy.yml) applies it with:
+#    clusterName      ← repository variable EKS_CLUSTER_NAME
+#    image.repository ← ECR_REPOSITORY (or ghcr.io/<owner>/eks-healthcheck)
+#    image.tag        ← the commit SHA
+#  Every option, with its default: chart/eks-healthcheck/values.yaml
+# ─────────────────────────────────────────────────────────────────────────────
 
-replicaCount: 1
-
-# kube-system is noisy for most teams; remove this line to watch it too.
+# Which namespaces to watch. Empty = all. Excluded ones are hidden everywhere
+# (list, logs and rollout), e.g. to keep app teams away from kube-system.
+namespaces: []
 excludeNamespaces: []
+# excludeNamespaces: [kube-system, kube-node-lease]
 
+# The rollout restart button is a write action on the cluster.
+# false removes the button, the API endpoint and the RBAC "patch" permission.
 rollout:
   enabled: true
 
-# Expose it inside the VPC through the AWS Load Balancer Controller.
-# Keep it internal: the rollout button is a write action on the cluster.
+# How it is reached. Without an ingress: kubectl port-forward (see the chart NOTES).
+# With the AWS Load Balancer Controller installed, an INTERNAL ALB inside the VPC:
 ingress:
   enabled: false
   className: alb
@@ -18,9 +27,33 @@ ingress:
     alb.ingress.kubernetes.io/scheme: internal
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    # HTTPS with an ACM certificate:
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:123456789012:certificate/...
   hosts:
     - host: healthcheck.internal.example.com
       paths: ["/"]
+
+# Login for the UI and API. Better: an ingress with SSO (ALB + Cognito/OIDC, or
+# oauth2-proxy). If you use this, create the Secret yourself so the password is
+# not in git:
+#   kubectl -n healthcheck create secret generic healthcheck-auth \
+#     --from-literal=username=ops --from-literal=password='...'
+auth:
+  enabled: false
+  existingSecret: ""
+  # existingSecret: healthcheck-auth
+
+# Refresh rates and how often the Kubernetes API is listed (one LIST per TTL,
+# however many people are watching).
+refresh:
+  pageSeconds: 30
+  tvSeconds: 15
+cacheTtlSeconds: 10
+
+# Scheduling, e.g. keep it off Spot nodes:
+# nodeSelector:
+#   eks.amazonaws.com/capacityType: ON_DEMAND
 
 resources:
   requests:

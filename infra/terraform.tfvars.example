@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars and edit.
+region            = "us-east-1"
+cluster_name      = "my-eks-cluster"
+github_repository = "your-github-user/eks-healthcheck"
+
+# Already have the GitHub OIDC provider in this account? Set false.
+# create_github_oidc_provider = false
+
+# Cluster still on aws-auth ConfigMap only? Set false and map the role yourself.
+# manage_eks_access = false

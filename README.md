@@ -4,7 +4,7 @@
 
 **A small web app that runs inside an EKS cluster and answers "is everything OK?" at a glance**: every deployment sorted by OK/NOK, the pods behind each one with their events and logs, a one-click rollout restart, node health (instance type, family, Spot/On-Demand, uptime) and a full-screen dashboard made for the TV on the team's wall.
 
-Every push to `main` is linted, unit-tested, tested end to end on a real Kubernetes API (kind), scanned, built for amd64 + arm64 and deployed to EKS with Helm, using GitHub OIDC (no AWS keys stored anywhere).
+Every push to `main` is linted, unit-tested, tested end to end on a real Kubernetes API (kind), scanned, built for amd64 + arm64 and deployed to EKS with Helm, using GitHub OIDC (no AWS keys stored anywhere). **Fork it to run it on your own cluster:** the AWS side is one `terraform apply` ([guide](docs/deploy-your-cluster.md)).
 
 | Deployments, NOK first | One deployment: pods, events, logs, rollout |
 |---|---|
@@ -79,38 +79,27 @@ make e2e         # the same end-to-end checks CI runs
 
 Running the app on your laptop against the current kube context also works: `pip install -r requirements.txt && uvicorn app.main:create_app --factory --port 8080` (it falls back to `~/.kube/config` when not in a cluster).
 
-### 3. EKS, through the pipeline
+### 3. Your EKS cluster
+
+**Fork it, run one `terraform apply`, set four repository variables, push.** From then on every push to your `main` is tested and deployed to your cluster, with the image in your ECR and no AWS keys stored anywhere. Step by step, plus a 5-minute Helm-only path: **[docs/deploy-your-cluster.md](docs/deploy-your-cluster.md)**.
 
 ```mermaid
 flowchart LR
     P[push to main] --> T[test<br/>ruff + 76 pytest]
     P --> C[chart<br/>helm lint + render variants]
     T & C --> E[e2e on kind<br/>Trivy scan + real API checks]
-    E --> I[image<br/>amd64 + arm64 → GHCR]
+    E --> I[image<br/>amd64 + arm64 → your ECR or GHCR]
     I --> D[eks<br/>OIDC → helm upgrade --atomic → smoke test]
 ```
 
-`ci.yml` runs on every push and pull request; `deploy.yml` starts only when CI succeeded on `main`. The `eks` job is skipped until the repository is configured, so the pipeline stays green on forks:
+| You change | Where |
+|---|---|
+| AWS account, cluster, region, which repository may deploy | [`infra/terraform.tfvars`](infra/terraform.tfvars.example): creates the OIDC role, ECR repository and EKS access entry |
+| Which cluster the pipeline deploys to | repository variables `AWS_REGION`, `EKS_CLUSTER_NAME`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY` (printed by `terraform output github_setup`) |
+| Namespaces, rollout on/off, ALB ingress, login, node placement | [`deploy/values-production.yaml`](deploy/values-production.yaml) |
+| Who approves production deploys | required reviewers on the `production` environment |
 
-| Where | Name | Value |
-|---|---|---|
-| Variables | `EKS_CLUSTER_NAME` | e.g. `prod-eks` |
-| Variables | `AWS_REGION` | e.g. `us-east-1` |
-| Secrets | `AWS_DEPLOY_ROLE_ARN` | IAM role GitHub assumes through OIDC |
-| Environment | `production` | add required reviewers to gate deploys |
-
-One-time AWS setup (the role needs `eks:DescribeCluster` and an EKS access entry):
-
-```bash
-# Trust policy: only this repo's main branch / production environment can assume the role
-#   "token.actions.githubusercontent.com:sub": "repo:<owner>/eks-healthcheck:environment:production"
-aws eks create-access-entry --cluster-name prod-eks --principal-arn "$ROLE_ARN"
-# The chart creates a ClusterRole/Binding, so the deployer needs cluster-admin on this cluster
-aws eks associate-access-policy --cluster-name prod-eks --principal-arn "$ROLE_ARN" \
-  --policy-arn arn:aws:eks::aws:policy/AmazonEKSClusterAdminPolicy --access-scope type=cluster
-```
-
-Make the GHCR package public (or add `imagePullSecrets`) so the nodes can pull it. To expose the UI inside the VPC, enable the internal ALB ingress in [`deploy/values-production.yaml`](deploy/values-production.yaml).
+`ci.yml` runs on every push and pull request; `deploy.yml` starts only after CI succeeded on `main`. Without `EKS_CLUSTER_NAME` the deploy job is skipped, so a fresh fork stays green. The IAM role trusts only your repository's `main` branch and `production` environment: pull requests can run tests but can never deploy.
 
 ## Configuration
 
@@ -126,7 +115,7 @@ Helm values (env var in parentheses):
 | `refresh.pageSeconds` / `refresh.tvSeconds` | `30` / `15` | auto-refresh of pages and TV |
 | `pendingGraceSeconds` (`PENDING_GRACE_SECONDS`) | `300` | Pending longer than this is a problem |
 | `logTailLines` (`LOG_TAIL_LINES`) | `300` | default lines in the log viewer (max 2000) |
-| `auth.enabled`, `auth.username`, `auth.password` / `auth.existingSecret` | off | HTTP Basic auth; probes stay open |
+| `auth.enabled`, `auth.existingSecret` (or `auth.username`/`auth.password`) | off | HTTP Basic auth; probes stay open |
 | `demoMode` (`DEMO_MODE`) | `false` | fake cluster, no API calls, no ClusterRole |
 
 For production, prefer putting it behind an SSO-aware ingress (ALB with Cognito/OIDC, or oauth2-proxy) over Basic auth.
@@ -155,7 +144,9 @@ app/
   main.py        # FastAPI routes, API shapes, auth, rollout
   templates/ static/
 chart/eks-healthcheck/   # Helm chart: Deployment, Service, Ingress, RBAC, Secret
-deploy/                  # production values used by the pipeline
+deploy/                  # YOUR settings, applied by the pipeline
+infra/                   # Terraform: GitHub OIDC role, ECR, EKS access entry
+docs/deploy-your-cluster.md
 scripts/e2e-kind.sh      # end-to-end checks against a real cluster
 tests/                   # 76 tests: rules, client mapping, cache, HTTP API
 ```
